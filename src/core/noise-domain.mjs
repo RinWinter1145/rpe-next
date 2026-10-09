@@ -218,6 +218,32 @@ export function translateNoiseArea(source, delta) {
   return area;
 }
 
+/** Resize from one displayed corner while keeping its opposite corner fixed. */
+export function resizeNoiseAreaFromCorner(source, seconds, cornerIndex, desiredCorner, aspect = 9 / 16) {
+  let area = normalizeNoiseArea(source);
+  const rect = noiseRectAt(area, seconds); const center = { x: rect.center.x, y: rect.center.y * aspect };
+  const signs = [[-1, -1], [1, -1], [1, 1], [-1, 1]]; const [signX, signY] = signs[cornerIndex] ?? [1, 1];
+  const opposite = rotateAround({ x: center.x - signX * rect.width / 2, y: center.y - signY * rect.height * aspect / 2 }, center, rect.rotation);
+  const local = rotateAround({ x: desiredCorner.x, y: desiredCorner.y * aspect }, opposite, -rect.rotation);
+  const deltaX = signX * Math.max(.002, signX * (local.x - opposite.x));
+  const deltaY = signY * Math.max(.002 * aspect, signY * (local.y - opposite.y));
+  const adjusted = rotateAround({ x: opposite.x + deltaX, y: opposite.y + deltaY }, opposite, rect.rotation);
+  const desiredCenter = { x: (opposite.x + adjusted.x) / 2, y: (opposite.y + adjusted.y) / (2 * aspect) };
+  const ratioX = Math.abs(deltaX) / Math.max(.0001, rect.width); const ratioY = Math.abs(deltaY) / Math.max(.0001, rect.height * aspect);
+  const exact = [...area.scaleEvents.keys()].reverse().find(index => Math.abs(area.scaleEvents[index].time - seconds) < 1e-7);
+  if (exact !== undefined) {
+    area.scaleEvents[exact].scale.x *= ratioX; area.scaleEvents[exact].scale.y *= ratioY;
+  } else {
+    const baseCenter = { x: (area.topRightPercentage.x + area.bottomLeftPercentage.x) / 2, y: (area.topRightPercentage.y + area.bottomLeftPercentage.y) / 2 };
+    const width = Math.abs(area.topRightPercentage.x - area.bottomLeftPercentage.x) * ratioX;
+    const height = Math.abs(area.topRightPercentage.y - area.bottomLeftPercentage.y) * ratioY;
+    area.topRightPercentage = { x: baseCenter.x + width / 2, y: baseCenter.y - height / 2 };
+    area.bottomLeftPercentage = { x: baseCenter.x - width / 2, y: baseCenter.y + height / 2 };
+  }
+  const actualCenter = noiseRectAt(area, seconds).center;
+  return translateNoiseArea(area, { x: desiredCenter.x - actualCenter.x, y: desiredCenter.y - actualCenter.y });
+}
+
 export function noiseContains(rect, pointValue) {
   const local = rotateAround(pointValue, rect.center, -rect.rotation);
   return rect.width > 0 && rect.height > 0 && Math.abs(local.x - rect.center.x) <= rect.width / 2 && Math.abs(local.y - rect.center.y) <= rect.height / 2;

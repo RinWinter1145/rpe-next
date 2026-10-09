@@ -1,5 +1,5 @@
 import { formatBeat, parseBeat } from '../core/beat.mjs';
-import { NOISE_EASING_NAMES, createNoiseArea, noiseMoveTargetForCenter, noisePhases, noiseRectAt, normalizeNoiseArea, translateNoiseArea } from '../core/noise-domain.mjs';
+import { NOISE_EASING_NAMES, createNoiseArea, noiseMoveTargetForCenter, noisePhases, noiseRectAt, normalizeNoiseArea, resizeNoiseAreaFromCorner, translateNoiseArea } from '../core/noise-domain.mjs';
 
 const close = (left, right) => Math.abs(left - right) < 1e-7;
 const number = (value, name) => { const result = Number(value); if (!Number.isFinite(result)) throw new Error(`${name} 必须为有限数字`); return result; };
@@ -223,6 +223,7 @@ export class NoiseDomainPanel {
     const dx = this.drag.current.x - this.drag.start.x; const dy = this.drag.current.y - this.drag.start.y; const seconds = this.state.seconds();
     if (this.drag.mode === 'draw') { setBounds(area, Math.min(this.drag.start.x, this.drag.current.x), Math.min(this.drag.start.y, this.drag.current.y), Math.max(this.drag.start.x, this.drag.current.x), Math.max(this.drag.start.y, this.drag.current.y)); return area; }
     if (this.drag.mode === 'scale') {
+      if (Number.isInteger(this.drag.corner)) return resizeNoiseAreaFromCorner(area, seconds, this.drag.corner, this.drag.current);
       const rect = noiseRectAt(area, seconds); const aspect = 9 / 16; const center = { x: rect.center.x, y: rect.center.y * aspect };
       const current = rotatePoint({ x: this.drag.current.x, y: this.drag.current.y * aspect }, center, -rect.rotation);
       const targetWidth = Math.max(.002, Math.abs(current.x - center.x) * 2); const targetHeight = Math.max(.002, Math.abs(current.y - center.y) * 2 / aspect);

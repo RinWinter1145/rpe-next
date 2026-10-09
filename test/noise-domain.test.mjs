@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createChart, parseChart, serializeChart } from '../src/core/chart.mjs';
-import { createNoiseArea, noiseMoveTargetForCenter, noisePhases, noiseRectAt, phigrosNoiseEase, translateNoiseArea } from '../src/core/noise-domain.mjs';
+import { createNoiseArea, noiseMoveTargetForCenter, noisePhases, noiseRectAt, phigrosNoiseEase, resizeNoiseAreaFromCorner, translateNoiseArea } from '../src/core/noise-domain.mjs';
 import { parseOfficialChart } from '../src/core/official-chart.mjs';
 
 test('噪域官方字段在 RPE JSON 中原样往返', () => {
@@ -60,4 +60,16 @@ test('全局拖动会同步平移关键帧和锚点并保持相对动画', () =>
   assert.ok(Math.abs(after.center.y - before.center.y + 0.2) < 1e-12);
   assert.deepEqual(moved.scaleEvents[0].anchor, { x: 0.2, y: 0 });
   assert.deepEqual(moved.rotateEvents[0].anchor, { x: 0.4, y: 0.2 });
+});
+
+test('拖动单角缩放时固定对角而不是从中心对称缩放', () => {
+  const area = createNoiseArea(0, 4);
+  const moved = resizeNoiseAreaFromCorner(area, 0, 1, { x: 0.9, y: 0.1 });
+  const rect = noiseRectAt(moved, 0);
+  assert.ok(Math.abs(rect.center.x - 0.575) < 1e-12);
+  assert.ok(Math.abs(rect.center.y - 0.425) < 1e-12);
+  assert.ok(Math.abs(rect.width - 0.65) < 1e-12);
+  assert.ok(Math.abs(rect.height - 0.65) < 1e-12);
+  assert.ok(Math.abs(rect.center.x - rect.width / 2 - 0.25) < 1e-12);
+  assert.ok(Math.abs(rect.center.y + rect.height / 2 - 0.75) < 1e-12);
 });
