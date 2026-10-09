@@ -1,4 +1,13 @@
 const clamp = value => Math.max(0, Math.min(1, value));
+export const RPE_NOISE_SIZE = Object.freeze({ width: 1350, height: 900 });
+
+export function noisePointToRpe(pointValue) {
+  return { x: pointValue.x * RPE_NOISE_SIZE.width - RPE_NOISE_SIZE.width / 2, y: pointValue.y * RPE_NOISE_SIZE.height - RPE_NOISE_SIZE.height / 2 };
+}
+
+export function rpePointToNoise(pointValue) {
+  return { x: (pointValue.x + RPE_NOISE_SIZE.width / 2) / RPE_NOISE_SIZE.width, y: (pointValue.y + RPE_NOISE_SIZE.height / 2) / RPE_NOISE_SIZE.height };
+}
 const point = (value, fallback) => ({
   x: Number.isFinite(value?.x) ? value.x : fallback.x,
   y: Number.isFinite(value?.y) ? value.y : fallback.y,

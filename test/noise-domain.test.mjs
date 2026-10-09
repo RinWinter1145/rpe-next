@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createChart, parseChart, serializeChart } from '../src/core/chart.mjs';
-import { createNoiseArea, noiseMoveTargetForCenter, noisePhases, noiseRectAt, phigrosNoiseEase, resizeNoiseAreaFromCorner, translateNoiseArea } from '../src/core/noise-domain.mjs';
+import { createNoiseArea, noiseMoveTargetForCenter, noisePhases, noisePointToRpe, noiseRectAt, phigrosNoiseEase, resizeNoiseAreaFromCorner, rpePointToNoise, translateNoiseArea } from '../src/core/noise-domain.mjs';
 import { parseOfficialChart } from '../src/core/official-chart.mjs';
+import { composeActiveMasks, composeDisabledMasks, officialSubtractEnabled } from '../src/ui/noise-domain-renderer.mjs';
 
 test('噪域官方字段在 RPE JSON 中原样往返', () => {
   const chart = createChart(); const area = createNoiseArea(1, 3);
@@ -61,6 +62,13 @@ test('新建噪域使用官方左下原点坐标，复合缓动保留 APK 断点
   assert.ok(phigrosNoiseEase(0.58, 3) > 0.5);
 });
 
+test('噪域百分比坐标与 RPEN 1350×900 中心坐标可逆转换', () => {
+  assert.deepEqual(noisePointToRpe({ x: 0.5, y: 0.5 }), { x: 0, y: 0 });
+  assert.deepEqual(noisePointToRpe({ x: 0, y: 0 }), { x: -675, y: -450 });
+  assert.deepEqual(rpePointToNoise({ x: 675, y: 450 }), { x: 1, y: 1 });
+  assert.deepEqual(rpePointToNoise(noisePointToRpe({ x: 1.2, y: -0.3 })), { x: 1.2, y: -0.3 });
+});
+
 test('带偏心缩放旋转时，画面拖动会换算成正确的官方移动目标', () => {
   const area = createNoiseArea(0, 4);
   area.scaleEvents = [{ time: 0, anchor: { x: 0, y: 0 }, scale: { x: 2, y: 1 }, easeTypeX: 0, easeTypeY: 0 }];
@@ -91,4 +99,18 @@ test('拖动单角缩放时固定对角而不是从中心对称缩放', () => {
   assert.ok(Math.abs(rect.height - 0.65) < 1e-12);
   assert.ok(Math.abs(rect.center.x - rect.width / 2 - 0.25) < 1e-12);
   assert.ok(Math.abs(rect.center.y - rect.height / 2 - 0.25) < 1e-12);
+});
+
+test('噪域视觉扣除使用官方单层阈值而不是普通并集异或', () => {
+  assert.equal(officialSubtractEnabled(1), true);
+  assert.equal(officialSubtractEnabled(2), false);
+  assert.equal(officialSubtractEnabled(3), false);
+  assert.deepEqual([...composeActiveMasks(new Float32Array([1, 0, 1]), new Uint8Array([1, 1, 2]))], [0, 255, 255]);
+});
+
+test('未激活减区块只作用于未激活遮罩并保留淡入强度', () => {
+  const full = composeDisabledMasks(new Float32Array([1, 0]), new Uint8Array([1, 1]), new Float32Array([0.1, 0.1]));
+  const half = composeDisabledMasks(new Float32Array([0.5]), new Uint8Array([1]), new Float32Array([0.05]));
+  assert.deepEqual([...full], [0, 255]);
+  assert.deepEqual([...half], [0]);
 });

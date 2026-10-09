@@ -1,5 +1,5 @@
 import { formatBeat, parseBeat } from '../core/beat.mjs';
-import { NOISE_EASING_NAMES, createNoiseArea, noiseMoveTargetForCenter, noisePhases, noiseRectAt, normalizeNoiseArea, resizeNoiseAreaFromCorner, translateNoiseArea } from '../core/noise-domain.mjs';
+import { NOISE_EASING_NAMES, RPE_NOISE_SIZE, createNoiseArea, noiseMoveTargetForCenter, noisePhases, noisePointToRpe, noiseRectAt, normalizeNoiseArea, resizeNoiseAreaFromCorner, rpePointToNoise, translateNoiseArea } from '../core/noise-domain.mjs';
 
 const close = (left, right) => Math.abs(left - right) < 1e-7;
 const number = (value, name) => { const result = Number(value); if (!Number.isFinite(result)) throw new Error(`${name} 必须为有限数字`); return result; };
@@ -58,11 +58,18 @@ export class NoiseDomainPanel {
     for (const [key, title] of [['appearTime', '出现拍'], ['enableTime', '生效拍'], ['disableTime', '失效拍'], ['disappearTime', '消失拍']]) phase.append(this.beatField(title, this.area[key], value => this.edit(`修改${title}`, area => { area[key] = value; })));
     this.host.append(phase);
 
-    const geometry = detailsSection('精确几何与预设');
+    const geometry = detailsSection('RPEN 坐标与预设');
     const presets = document.createElement('div'); presets.className = 'noise-actions';
     for (const [title, corners] of [['全屏', [0, 0, 1, 1]], ['左半', [0, 0, .5, 1]], ['右半', [.5, 0, 1, 1]], ['上半', [0, .5, 1, 1]], ['下半', [0, 0, 1, .5]]]) presets.append(button(title, () => this.edit('应用噪域预设', area => setBounds(area, ...corners))));
     geometry.append(presets);
-    for (const [objectKey, title] of [['topRightPercentage', '右上'], ['bottomLeftPercentage', '左下']]) for (const axis of ['x', 'y']) geometry.append(this.numberField(`${title} ${axis.toUpperCase()}`, this.area[objectKey][axis], value => this.edit('修改噪域矩形', area => { area[objectKey][axis] = value; }), 0.01));
+    const left = Math.min(this.area.bottomLeftPercentage.x, this.area.topRightPercentage.x); const right = Math.max(this.area.bottomLeftPercentage.x, this.area.topRightPercentage.x);
+    const bottom = Math.min(this.area.bottomLeftPercentage.y, this.area.topRightPercentage.y); const top = Math.max(this.area.bottomLeftPercentage.y, this.area.topRightPercentage.y);
+    const center = noisePointToRpe({ x: (left + right) / 2, y: (bottom + top) / 2 });
+    geometry.append(this.numberField('中心 X', tidy(center.x), value => this.edit('修改噪域中心', area => replaceArea(area, translateNoiseArea(area, { x: rpePointToNoise({ x: value, y: 0 }).x - (area.bottomLeftPercentage.x + area.topRightPercentage.x) / 2, y: 0 }))), 1));
+    geometry.append(this.numberField('中心 Y', tidy(center.y), value => this.edit('修改噪域中心', area => replaceArea(area, translateNoiseArea(area, { x: 0, y: rpePointToNoise({ x: 0, y: value }).y - (area.bottomLeftPercentage.y + area.topRightPercentage.y) / 2 }))), 1));
+    geometry.append(this.numberField('宽度', tidy((right - left) * RPE_NOISE_SIZE.width), value => this.edit('修改噪域宽度', area => resizeBase(area, Math.max(0, value) / RPE_NOISE_SIZE.width, null)), 1));
+    geometry.append(this.numberField('高度', tidy((top - bottom) * RPE_NOISE_SIZE.height), value => this.edit('修改噪域高度', area => resizeBase(area, null, Math.max(0, value) / RPE_NOISE_SIZE.height)), 1));
+    const coordinateHint = document.createElement('p'); coordinateHint.className = 'hint'; coordinateHint.textContent = 'RPEN 1350×900 坐标：中心为 (0, 0)，X 向右、Y 向上；保存时自动换回官方百分比。'; geometry.append(coordinateHint);
     this.host.append(geometry);
 
     this.host.append(this.eventSection('移动事件', 'moveEvents'), this.eventSection('缩放事件', 'scaleEvents'), this.eventSection('旋转事件', 'rotateEvents'));
@@ -169,13 +176,17 @@ export class NoiseDomainPanel {
       const card = document.createElement('div'); card.className = 'noise-event-card';
       card.append(this.beatField('拍', event.time, value => this.edit(`修改${title}`, area => { area[key][index].time = value; sortStable(area[key]); })));
       if (key === 'moveEvents') {
-        card.append(this.numberField('目标 X', event.endPosition.x, value => this.eventValue(key, index, item => { item.endPosition.x = value; }), .01), this.numberField('目标 Y', event.endPosition.y, value => this.eventValue(key, index, item => { item.endPosition.y = value; }), .01));
+        const target = noisePointToRpe(event.endPosition);
+        card.append(this.numberField('目标 X', tidy(target.x), value => this.eventValue(key, index, item => { item.endPosition.x = rpePointToNoise({ x: value, y: 0 }).x; }), 1), this.numberField('目标 Y', tidy(target.y), value => this.eventValue(key, index, item => { item.endPosition.y = rpePointToNoise({ x: 0, y: value }).y; }), 1));
         card.append(this.easeField('X 缓动', event.easeTypeX, value => this.eventValue(key, index, item => { item.easeTypeX = value; })), this.easeField('Y 缓动', event.easeTypeY, value => this.eventValue(key, index, item => { item.easeTypeY = value; })));
       } else if (key === 'scaleEvents') {
-        for (const [objectKey, label] of [['anchor', '锚点'], ['scale', '缩放']]) for (const axis of ['x', 'y']) card.append(this.numberField(`${label} ${axis.toUpperCase()}`, event[objectKey][axis], value => this.eventValue(key, index, item => { item[objectKey][axis] = value; }), .01));
+        const anchor = noisePointToRpe(event.anchor);
+        card.append(this.numberField('锚点 X', tidy(anchor.x), value => this.eventValue(key, index, item => { item.anchor.x = rpePointToNoise({ x: value, y: 0 }).x; }), 1), this.numberField('锚点 Y', tidy(anchor.y), value => this.eventValue(key, index, item => { item.anchor.y = rpePointToNoise({ x: 0, y: value }).y; }), 1));
+        for (const axis of ['x', 'y']) card.append(this.numberField(`缩放 ${axis.toUpperCase()}`, event.scale[axis], value => this.eventValue(key, index, item => { item.scale[axis] = value; }), .01));
         card.append(this.easeField('X 缓动', event.easeTypeX, value => this.eventValue(key, index, item => { item.easeTypeX = value; })), this.easeField('Y 缓动', event.easeTypeY, value => this.eventValue(key, index, item => { item.easeTypeY = value; })));
       } else {
-        for (const axis of ['x', 'y']) card.append(this.numberField(`锚点 ${axis.toUpperCase()}`, event.anchor[axis], value => this.eventValue(key, index, item => { item.anchor[axis] = value; }), .01));
+        const anchor = noisePointToRpe(event.anchor);
+        card.append(this.numberField('锚点 X', tidy(anchor.x), value => this.eventValue(key, index, item => { item.anchor.x = rpePointToNoise({ x: value, y: 0 }).x; }), 1), this.numberField('锚点 Y', tidy(anchor.y), value => this.eventValue(key, index, item => { item.anchor.y = rpePointToNoise({ x: 0, y: value }).y; }), 1));
         card.append(this.numberField('旋转角度', event.rotation, value => this.eventValue(key, index, item => { item.rotation = value; }), 1), this.easeField('缓动', event.easeType, value => this.eventValue(key, index, item => { item.easeType = value; })));
       }
       card.append(button('删除关键帧', () => this.edit(`删除${title}`, area => { area[key].splice(index, 1); }))); root.append(card);
@@ -274,6 +285,13 @@ function button(title, onclick) { const result = document.createElement('button'
 function field(title, control) { const label = document.createElement('label'); label.className = 'field'; label.append(title, control); control.setAttribute('aria-label', title); return label; }
 function detailsSection(title) { const root = document.createElement('details'); root.className = 'noise-section'; const heading = document.createElement('summary'); heading.textContent = title; root.append(heading); return root; }
 function setBounds(area, left, bottom, right, top) { area.topRightPercentage = { x: right, y: top }; area.bottomLeftPercentage = { x: left, y: bottom }; }
+function replaceArea(target, source) { for (const key of Object.keys(target)) delete target[key]; Object.assign(target, source); }
+function resizeBase(area, width, height) {
+  const centerX = (area.bottomLeftPercentage.x + area.topRightPercentage.x) / 2; const centerY = (area.bottomLeftPercentage.y + area.topRightPercentage.y) / 2;
+  const nextWidth = width ?? Math.abs(area.topRightPercentage.x - area.bottomLeftPercentage.x); const nextHeight = height ?? Math.abs(area.topRightPercentage.y - area.bottomLeftPercentage.y);
+  setBounds(area, centerX - nextWidth / 2, centerY - nextHeight / 2, centerX + nextWidth / 2, centerY + nextHeight / 2);
+}
+function tidy(value) { return Math.abs(value - Math.round(value)) < 1e-9 ? Math.round(value) : Math.round(value * 1000) / 1000; }
 function sortStable(events) { events.forEach((event, index) => { event.__sortIndex = index; }); events.sort((left, right) => left.time - right.time || left.__sortIndex - right.__sortIndex); events.forEach(event => { delete event.__sortIndex; }); }
 function formatBeatFromSeconds(tempo, seconds) { return formatBeat(parseBeat(tempo.beat(seconds))); }
 function rotatePoint(point, center, degrees) { const angle = degrees * Math.PI / 180; const cosine = Math.cos(angle); const sine = Math.sin(angle); const x = point.x - center.x; const y = point.y - center.y; return { x: center.x + x * cosine - y * sine, y: center.y + x * sine + y * cosine }; }
