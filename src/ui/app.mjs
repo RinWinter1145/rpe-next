@@ -186,7 +186,7 @@ const multiEdit = new MultiEditPanel(element('#multi-editor'), () => session, ti
 const trajectoryPanel = new TrajectoryPanel(element('#trajectory-editor'), () => ({ session, timeline, tempo, previewVisible: preview.visible }), { invalidate, notify, activate: activatePane });
 const multiLinePanel = new MultiLinePanel(element('#multi-line-editor'), () => session, { timeline, render: renderSession, notify, persist: persistEditor });
 const linePanel = new LinePanel(element('#line-panel'), () => session, { render: renderSession, notify, getAssets: () => assets, afterTexture: () => images.load(session.chart, assets, chartName) });
-const noiseDomainPanel = new NoiseDomainPanel(element('#noise-domain-editor'), () => ({ session, tempo, seconds: chartSeconds, preview, realtimePreview }), {
+const noiseDomainPanel = new NoiseDomainPanel(element('#noise-domain-editor'), () => ({ session, tempo, division: timeline.division, seconds: chartSeconds, preview, realtimePreview }), {
   close: () => activatePane('chart'), invalidate, reportError: error => reportError(error),
 });
 const assetLibrary = new AssetLibraryPanel(element('#asset-library'), () => ({ assets, folders: assetFolders, chart: session.chart, chartName }), {
@@ -1446,6 +1446,7 @@ function frame(timestamp) {
     const beat = currentBeat();
     session.editSeconds = Math.max(0, chartSeconds());
     updateLineInfo();
+    if (activePaneName === 'noise') noiseDomainPanel.tick();
     if (audio.playing) timeline.origin = beat;
     if (!preview.visible) {
       timeline.draw(beat);

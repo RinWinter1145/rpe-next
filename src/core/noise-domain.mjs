@@ -195,8 +195,30 @@ export function noiseRectAt(source, seconds) {
   return { center, width, height, rotation };
 }
 
+/** Convert a desired rendered centre into the absolute target stored by moveEvents. */
+export function noiseMoveTargetForCenter(source, seconds, desiredCenter) {
+  const area = normalizeNoiseArea(source);
+  const base = { x: (area.topRightPercentage.x + area.bottomLeftPercentage.x) / 2, y: (area.topRightPercentage.y + area.bottomLeftPercentage.y) / 2 };
+  const transformed = noiseRectAt({ ...area, moveEvents: [] }, seconds).center;
+  return { x: base.x + desiredCenter.x - transformed.x, y: base.y + desiredCenter.y - transformed.y };
+}
+
+/** Translate an entire noise-domain animation without changing its relative motion. */
+export function translateNoiseArea(source, delta) {
+  const area = normalizeNoiseArea(source);
+  for (const key of ['topRightPercentage', 'bottomLeftPercentage']) {
+    area[key].x += delta.x; area[key].y += delta.y;
+  }
+  for (const event of area.moveEvents) {
+    event.endPosition.x += delta.x; event.endPosition.y += delta.y;
+  }
+  for (const key of ['scaleEvents', 'rotateEvents']) for (const event of area[key]) {
+    event.anchor.x += delta.x; event.anchor.y += delta.y;
+  }
+  return area;
+}
+
 export function noiseContains(rect, pointValue) {
   const local = rotateAround(pointValue, rect.center, -rect.rotation);
   return rect.width > 0 && rect.height > 0 && Math.abs(local.x - rect.center.x) <= rect.width / 2 && Math.abs(local.y - rect.center.y) <= rect.height / 2;
 }
-
