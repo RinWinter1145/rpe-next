@@ -35,11 +35,30 @@ test('噪域按官方 scale rotate move 顺序求值且无半拍偏移', () => {
   assert.equal(start.width, 1); assert.ok(Math.abs(start.height - 0.05) < 1e-12); assert.equal(start.rotation, -45);
 });
 
+test('偏心旋转在世界坐标中计入屏幕宽高比', () => {
+  const area = createNoiseArea(0, 4);
+  area.topRightPercentage = { x: 1, y: .75 }; area.bottomLeftPercentage = { x: .5, y: .25 };
+  area.rotateEvents = [
+    { time: 0, anchor: { x: .5, y: .5 }, rotation: 0, easeType: 0 },
+    { time: 1, anchor: { x: .5, y: .5 }, rotation: 90, easeType: 0 },
+  ];
+  const rect = noiseRectAt(area, 1, 2);
+  assert.ok(Math.abs(rect.center.x - .5) < 1e-12);
+  assert.ok(Math.abs(rect.center.y - 1) < 1e-12);
+});
+
 test('假噪域可见但永不生效，13/14 是保持与瞬变', () => {
   const area = createNoiseArea(0, 2); area.disableTime = area.enableTime;
-  assert.deepEqual(noisePhases(area, 0.25), { visible: true, active: false, ready: false, visualOnly: true });
+  assert.deepEqual(noisePhases(area, 0.25), { visible: true, active: false, ready: false, disabled: true, residual: true, visualOnly: true });
   assert.equal(phigrosNoiseEase(0.5, 13), 0);
   assert.equal(phigrosNoiseEase(0.01, 14), 1);
+});
+
+test('新建噪域使用官方左下原点坐标，复合缓动保留 APK 断点', () => {
+  const area = createNoiseArea();
+  assert.ok(area.topRightPercentage.y > area.bottomLeftPercentage.y);
+  assert.equal(phigrosNoiseEase(0.5, 3), 0);
+  assert.ok(phigrosNoiseEase(0.58, 3) > 0.5);
 });
 
 test('带偏心缩放旋转时，画面拖动会换算成正确的官方移动目标', () => {
@@ -64,12 +83,12 @@ test('全局拖动会同步平移关键帧和锚点并保持相对动画', () =>
 
 test('拖动单角缩放时固定对角而不是从中心对称缩放', () => {
   const area = createNoiseArea(0, 4);
-  const moved = resizeNoiseAreaFromCorner(area, 0, 1, { x: 0.9, y: 0.1 });
+  const moved = resizeNoiseAreaFromCorner(area, 0, 1, { x: 0.9, y: 0.9 });
   const rect = noiseRectAt(moved, 0);
   assert.ok(Math.abs(rect.center.x - 0.575) < 1e-12);
-  assert.ok(Math.abs(rect.center.y - 0.425) < 1e-12);
+  assert.ok(Math.abs(rect.center.y - 0.575) < 1e-12);
   assert.ok(Math.abs(rect.width - 0.65) < 1e-12);
   assert.ok(Math.abs(rect.height - 0.65) < 1e-12);
   assert.ok(Math.abs(rect.center.x - rect.width / 2 - 0.25) < 1e-12);
-  assert.ok(Math.abs(rect.center.y + rect.height / 2 - 0.75) < 1e-12);
+  assert.ok(Math.abs(rect.center.y - rect.height / 2 - 0.25) < 1e-12);
 });

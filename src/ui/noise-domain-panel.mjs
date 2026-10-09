@@ -60,7 +60,7 @@ export class NoiseDomainPanel {
 
     const geometry = detailsSection('精确几何与预设');
     const presets = document.createElement('div'); presets.className = 'noise-actions';
-    for (const [title, corners] of [['全屏', [0, 0, 1, 1]], ['左半', [0, 0, .5, 1]], ['右半', [.5, 0, 1, 1]], ['上半', [0, 0, 1, .5]], ['下半', [0, .5, 1, 1]]]) presets.append(button(title, () => this.edit('应用噪域预设', area => setBounds(area, ...corners))));
+    for (const [title, corners] of [['全屏', [0, 0, 1, 1]], ['左半', [0, 0, .5, 1]], ['右半', [.5, 0, 1, 1]], ['上半', [0, .5, 1, 1]], ['下半', [0, 0, 1, .5]]]) presets.append(button(title, () => this.edit('应用噪域预设', area => setBounds(area, ...corners))));
     geometry.append(presets);
     for (const [objectKey, title] of [['topRightPercentage', '右上'], ['bottomLeftPercentage', '左下']]) for (const axis of ['x', 'y']) geometry.append(this.numberField(`${title} ${axis.toUpperCase()}`, this.area[objectKey][axis], value => this.edit('修改噪域矩形', area => { area[objectKey][axis] = value; }), 0.01));
     this.host.append(geometry);
@@ -189,7 +189,7 @@ export class NoiseDomainPanel {
   }
 
   bindCanvas(canvas) {
-    const position = event => { const bounds = canvas.getBoundingClientRect(); return { x: (event.clientX - bounds.left) / bounds.width, y: (event.clientY - bounds.top) / bounds.height }; };
+    const position = event => { const bounds = canvas.getBoundingClientRect(); return { x: (event.clientX - bounds.left) / bounds.width, y: 1 - (event.clientY - bounds.top) / bounds.height }; };
     canvas.onpointerdown = event => {
       const start = position(event);
       if (this.drawMode) { this.drag = { start, current: start, original: structuredClone(this.area), mode: 'draw' }; canvas.setPointerCapture(event.pointerId); event.preventDefault(); return; }
@@ -258,7 +258,7 @@ export class NoiseDomainPanel {
     for (let index = 1; index < 4; index++) { context.beginPath(); context.moveTo(0, height * index / 4); context.lineTo(width, height * index / 4); context.stroke(); }
     const displayArea = ['move', 'scale', 'rotate', 'draw'].includes(this.drag?.mode) && this.drag.current ? this.draggedArea() : this.area;
     const rect = noiseRectAt(displayArea, this.state.seconds()); const phase = noisePhases(displayArea, this.state.seconds());
-    context.save(); context.translate(rect.center.x * width, rect.center.y * height); context.rotate(rect.rotation * Math.PI / 180);
+    context.save(); context.translate(rect.center.x * width, (1 - rect.center.y) * height); context.rotate(-rect.rotation * Math.PI / 180);
     context.fillStyle = phase.active ? 'rgba(185,25,38,.42)' : 'rgba(210,100,108,.22)'; context.strokeStyle = '#ef4b57'; context.lineWidth = 1.5; context.setLineDash([4, 2]);
     context.fillRect(-rect.width * width / 2, -rect.height * height / 2, rect.width * width, rect.height * height); context.strokeRect(-rect.width * width / 2, -rect.height * height / 2, rect.width * width, rect.height * height); context.restore();
     const handles = rectHandles(rect, width, height); context.lineWidth = 1.5;
@@ -273,24 +273,24 @@ export class NoiseDomainPanel {
 function button(title, onclick) { const result = document.createElement('button'); result.type = 'button'; result.textContent = title; result.onclick = onclick; return result; }
 function field(title, control) { const label = document.createElement('label'); label.className = 'field'; label.append(title, control); control.setAttribute('aria-label', title); return label; }
 function detailsSection(title) { const root = document.createElement('details'); root.className = 'noise-section'; const heading = document.createElement('summary'); heading.textContent = title; root.append(heading); return root; }
-function setBounds(area, left, top, right, bottom) { area.topRightPercentage = { x: right, y: top }; area.bottomLeftPercentage = { x: left, y: bottom }; }
+function setBounds(area, left, bottom, right, top) { area.topRightPercentage = { x: right, y: top }; area.bottomLeftPercentage = { x: left, y: bottom }; }
 function sortStable(events) { events.forEach((event, index) => { event.__sortIndex = index; }); events.sort((left, right) => left.time - right.time || left.__sortIndex - right.__sortIndex); events.forEach(event => { delete event.__sortIndex; }); }
 function formatBeatFromSeconds(tempo, seconds) { return formatBeat(parseBeat(tempo.beat(seconds))); }
 function rotatePoint(point, center, degrees) { const angle = degrees * Math.PI / 180; const cosine = Math.cos(angle); const sine = Math.sin(angle); const x = point.x - center.x; const y = point.y - center.y; return { x: center.x + x * cosine - y * sine, y: center.y + x * sine + y * cosine }; }
 function rectHandles(rect, width, height) {
-  const center = { x: rect.center.x * width, y: rect.center.y * height }; const halfWidth = rect.width * width / 2; const halfHeight = rect.height * height / 2;
-  const transform = point => rotatePoint({ x: center.x + point.x, y: center.y + point.y }, center, rect.rotation);
+  const center = { x: rect.center.x * width, y: (1 - rect.center.y) * height }; const halfWidth = rect.width * width / 2; const halfHeight = rect.height * height / 2;
+  const transform = point => rotatePoint({ x: center.x + point.x, y: center.y + point.y }, center, -rect.rotation);
   const corners = [transform({ x: -halfWidth, y: -halfHeight }), transform({ x: halfWidth, y: -halfHeight }), transform({ x: halfWidth, y: halfHeight }), transform({ x: -halfWidth, y: halfHeight })];
   return { center, corners, top: transform({ x: 0, y: -halfHeight }), rotate: transform({ x: 0, y: -halfHeight - 25 }) };
 }
 function handleAt(rect, point, width, height) {
-  const handles = rectHandles(rect, width, height); const target = { x: point.x * width, y: point.y * height }; const distance = value => Math.hypot(value.x - target.x, value.y - target.y);
+  const handles = rectHandles(rect, width, height); const target = { x: point.x * width, y: (1 - point.y) * height }; const distance = value => Math.hypot(value.x - target.x, value.y - target.y);
   if (distance(handles.rotate) <= 14) return { kind: 'rotate' };
   const corner = handles.corners.findIndex(value => distance(value) <= 13); if (corner >= 0) return { kind: 'corner', corner };
   if (distance(handles.center) <= 16) return { kind: 'center' };
   return null;
 }
 function screenContains(rect, point, width, height) {
-  const center = { x: rect.center.x * width, y: rect.center.y * height }; const local = rotatePoint({ x: point.x * width, y: point.y * height }, center, -rect.rotation);
+  const center = { x: rect.center.x * width, y: (1 - rect.center.y) * height }; const local = rotatePoint({ x: point.x * width, y: (1 - point.y) * height }, center, rect.rotation);
   return Math.abs(local.x - center.x) <= rect.width * width / 2 && Math.abs(local.y - center.y) <= rect.height * height / 2;
 }

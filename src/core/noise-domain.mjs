@@ -5,17 +5,17 @@ const point = (value, fallback) => ({
 });
 
 export const NOISE_EASING_NAMES = [
-  '0 · 线性', '1 · 二次缓入', '2 · 二次缓出', '3 · 二次缓入缓出',
-  '4 · 三次缓入', '5 · 三次缓出', '6 · 三次缓入缓出',
-  '7 · 四次缓入', '8 · 四次缓出', '9 · 四次缓入缓出',
-  '10 · 五次缓入', '11 · 五次缓出', '12 · 五次缓入缓出',
+  '0 · 线性', '1 · 二次缓入', '2 · 二次缓出', '3 · 二次官方复合',
+  '4 · 三次缓入', '5 · 三次缓出', '6 · 三次官方复合',
+  '7 · 四次缓入', '8 · 四次缓出', '9 · 四次官方复合',
+  '10 · 五次缓入', '11 · 五次缓出', '12 · 五次官方复合',
   '13 · 保持前值', '14 · 瞬变后值',
 ];
 
 export function createNoiseArea(seconds = 0, duration = 2) {
   return {
-    topRightPercentage: { x: 0.75, y: 0.25 },
-    bottomLeftPercentage: { x: 0.25, y: 0.75 },
+    topRightPercentage: { x: 0.75, y: 0.75 },
+    bottomLeftPercentage: { x: 0.25, y: 0.25 },
     appearTime: seconds,
     enableTime: seconds,
     disableTime: seconds + duration,
@@ -92,10 +92,15 @@ function validateEvents(events, path, extra, easingKeys) {
 }
 
 export function noisePhases(area, seconds) {
+  const visible = area.appearTime <= seconds && seconds < area.disappearTime;
+  const active = area.enableTime <= seconds && seconds < area.disableTime;
+  const ready = visible && seconds < area.enableTime && area.enableTime - seconds <= 0.5;
   return {
-    visible: area.appearTime <= seconds && seconds < area.disappearTime,
-    active: area.enableTime <= seconds && seconds < area.disableTime,
-    ready: seconds < area.enableTime && area.enableTime - seconds <= 0.5,
+    visible,
+    active,
+    ready,
+    disabled: visible && !active && !ready,
+    residual: visible && seconds >= area.disableTime,
     visualOnly: area.enableTime >= area.disableTime,
   };
 }
@@ -112,9 +117,12 @@ export function phigrosNoiseEase(progress, type = 0) {
     const t = index / 100;
     if (kind === 0) return t ** power;
     if (kind === 1) return 1 - (1 - t) ** power;
-    if (index < 50) return 0.5 * (Math.min(100, index * 2 + 8) / 100) ** power;
+    if (index <= 46) return 0.5 * ((index * 2 + 8) / 100) ** power;
+    // APK 的 47..49 来自构建期越界读，无法逐位复现；按端点 1 处理。
+    if (index <= 49) return 0.5;
+    if (index <= 57) return 0;
     if (index < 100) {
-      const shifted = Math.min(100, index * 2 - 92) / 100;
+      const shifted = (8 + (index - 58) * 2) / 100;
       const inside = shifted ** power;
       return 0.5 + 0.5 * (1 - (1 - inside) ** power);
     }
@@ -126,12 +134,19 @@ export function phigrosNoiseEase(progress, type = 0) {
 }
 
 function mix(from, to, progress) { return from + (to - from) * progress; }
-function safeDivide(numerator, denominator) { return denominator === 0 ? 0 : numerator / denominator; }
+function safeDivide(numerator, denominator) {
+  const threshold = Math.max(Math.abs(denominator) * 1e-6, Number.MIN_VALUE * 8);
+  return Math.abs(denominator) < threshold ? 1 : numerator / denominator;
+}
 function around(pointValue, anchor, x, y = x) { return { x: anchor.x + (pointValue.x - anchor.x) * x, y: anchor.y + (pointValue.y - anchor.y) * y }; }
 function rotateAround(pointValue, anchor, degrees) {
   const radians = degrees * Math.PI / 180; const cosine = Math.cos(radians); const sine = Math.sin(radians);
   const x = pointValue.x - anchor.x; const y = pointValue.y - anchor.y;
   return { x: anchor.x + x * cosine - y * sine, y: anchor.y + x * sine + y * cosine };
+}
+function rotateAroundAspect(pointValue, anchor, degrees, aspect) {
+  const rotated = rotateAround({ x: pointValue.x * aspect, y: pointValue.y }, { x: anchor.x * aspect, y: anchor.y }, degrees);
+  return { x: rotated.x / aspect, y: rotated.y };
 }
 function currentIndex(events, seconds) {
   let result = -1;
@@ -144,7 +159,7 @@ function progress(current, following, type, seconds) {
 }
 
 /** Evaluate the official transform chain: scale, then rotation, then absolute movement. */
-export function noiseRectAt(source, seconds) {
+export function noiseRectAt(source, seconds, aspect = 16 / 9) {
   const area = normalizeNoiseArea(source);
   const base = {
     x: (area.topRightPercentage.x + area.bottomLeftPercentage.x) / 2,
@@ -176,11 +191,11 @@ export function noiseRectAt(source, seconds) {
     const current = area.rotateEvents[rotateIndex];
     for (let index = 1; index <= rotateIndex; index++) {
       const previous = area.rotateEvents[index - 1]; const next = area.rotateEvents[index];
-      center = rotateAround(center, previous.anchor, next.rotation - previous.rotation);
+      center = rotateAroundAspect(center, previous.anchor, next.rotation - previous.rotation, aspect);
     }
     const following = area.rotateEvents[rotateIndex + 1];
     rotation = following ? mix(current.rotation, following.rotation, progress(current, following, current.easeType, seconds)) : current.rotation;
-    center = rotateAround(center, current.anchor, rotation - current.rotation);
+    center = rotateAroundAspect(center, current.anchor, rotation - current.rotation, aspect);
   }
 
   const moveIndex = currentIndex(area.moveEvents, seconds);
@@ -196,10 +211,10 @@ export function noiseRectAt(source, seconds) {
 }
 
 /** Convert a desired rendered centre into the absolute target stored by moveEvents. */
-export function noiseMoveTargetForCenter(source, seconds, desiredCenter) {
+export function noiseMoveTargetForCenter(source, seconds, desiredCenter, aspect = 16 / 9) {
   const area = normalizeNoiseArea(source);
   const base = { x: (area.topRightPercentage.x + area.bottomLeftPercentage.x) / 2, y: (area.topRightPercentage.y + area.bottomLeftPercentage.y) / 2 };
-  const transformed = noiseRectAt({ ...area, moveEvents: [] }, seconds).center;
+  const transformed = noiseRectAt({ ...area, moveEvents: [] }, seconds, aspect).center;
   return { x: base.x + desiredCenter.x - transformed.x, y: base.y + desiredCenter.y - transformed.y };
 }
 
@@ -219,17 +234,18 @@ export function translateNoiseArea(source, delta) {
 }
 
 /** Resize from one displayed corner while keeping its opposite corner fixed. */
-export function resizeNoiseAreaFromCorner(source, seconds, cornerIndex, desiredCorner, aspect = 9 / 16) {
+export function resizeNoiseAreaFromCorner(source, seconds, cornerIndex, desiredCorner, aspect = 16 / 9) {
   let area = normalizeNoiseArea(source);
-  const rect = noiseRectAt(area, seconds); const center = { x: rect.center.x, y: rect.center.y * aspect };
-  const signs = [[-1, -1], [1, -1], [1, 1], [-1, 1]]; const [signX, signY] = signs[cornerIndex] ?? [1, 1];
-  const opposite = rotateAround({ x: center.x - signX * rect.width / 2, y: center.y - signY * rect.height * aspect / 2 }, center, rect.rotation);
-  const local = rotateAround({ x: desiredCorner.x, y: desiredCorner.y * aspect }, opposite, -rect.rotation);
-  const deltaX = signX * Math.max(.002, signX * (local.x - opposite.x));
-  const deltaY = signY * Math.max(.002 * aspect, signY * (local.y - opposite.y));
+  const rect = noiseRectAt(area, seconds, aspect); const center = { x: rect.center.x * aspect, y: rect.center.y };
+  // Corner indices follow the canvas handle order: top-left, top-right, bottom-right, bottom-left.
+  const signs = [[-1, 1], [1, 1], [1, -1], [-1, -1]]; const [signX, signY] = signs[cornerIndex] ?? [1, 1];
+  const opposite = rotateAround({ x: center.x - signX * rect.width * aspect / 2, y: center.y - signY * rect.height / 2 }, center, rect.rotation);
+  const local = rotateAround({ x: desiredCorner.x * aspect, y: desiredCorner.y }, opposite, -rect.rotation);
+  const deltaX = signX * Math.max(.002 * aspect, signX * (local.x - opposite.x));
+  const deltaY = signY * Math.max(.002, signY * (local.y - opposite.y));
   const adjusted = rotateAround({ x: opposite.x + deltaX, y: opposite.y + deltaY }, opposite, rect.rotation);
-  const desiredCenter = { x: (opposite.x + adjusted.x) / 2, y: (opposite.y + adjusted.y) / (2 * aspect) };
-  const ratioX = Math.abs(deltaX) / Math.max(.0001, rect.width); const ratioY = Math.abs(deltaY) / Math.max(.0001, rect.height * aspect);
+  const desiredCenter = { x: (opposite.x + adjusted.x) / (2 * aspect), y: (opposite.y + adjusted.y) / 2 };
+  const ratioX = Math.abs(deltaX) / Math.max(.0001, rect.width * aspect); const ratioY = Math.abs(deltaY) / Math.max(.0001, rect.height);
   const exact = [...area.scaleEvents.keys()].reverse().find(index => Math.abs(area.scaleEvents[index].time - seconds) < 1e-7);
   if (exact !== undefined) {
     area.scaleEvents[exact].scale.x *= ratioX; area.scaleEvents[exact].scale.y *= ratioY;
@@ -240,7 +256,7 @@ export function resizeNoiseAreaFromCorner(source, seconds, cornerIndex, desiredC
     area.topRightPercentage = { x: baseCenter.x + width / 2, y: baseCenter.y - height / 2 };
     area.bottomLeftPercentage = { x: baseCenter.x - width / 2, y: baseCenter.y + height / 2 };
   }
-  const actualCenter = noiseRectAt(area, seconds).center;
+  const actualCenter = noiseRectAt(area, seconds, aspect).center;
   return translateNoiseArea(area, { x: desiredCenter.x - actualCenter.x, y: desiredCenter.y - actualCenter.y });
 }
 
